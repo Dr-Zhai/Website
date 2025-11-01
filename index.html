@@ -2,583 +2,421 @@
 <html lang="zh-CN">
     <head>
         <meta charset="utf-8"/>
-        <title>单机五子棋（优化版）</title>
+        <title>单机五子棋</title>
         <style>
-            /* 全局样式调整 */
             body {
-                margin: 0;
-                padding: 20px;
-                box-sizing: border-box;
+                /* 优先使用微软雅黑（中英文名称都写上，兼容不同环境），最后 fallback 到无衬线字体 */
+                font-family: "Microsoft YaHei", "微软雅黑", sans-serif;
             }
 
-            h3 {
-                text-align: center;
-                margin: 20px 0;
-                color: #333;
-            }
-
-            /* 棋盘样式 */
             canvas {
                 display: block;
-                margin: 0 auto;
+                margin: 20px auto;
                 box-shadow: -2px -2px 2px #efefef, 5px 5px 5px #b9b9b9;
                 cursor: pointer;
-                border-radius: 4px;
             }
 
-            /* 控制区样式 */
-            .control-wrap {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                gap: 20px;
+            .board-select {
+                text-align: center;
                 margin: 20px 0;
             }
 
-            /* 棋盘大小选择样式 */
-            .board-size-wrap {
-                display: flex;
-                gap: 15px;
-            }
-
-            /* 功能按钮样式（绿色主题） */
-            .btn-wrap {
-                display: flex;
-                flex-direction: row;
-                justify-content: center;
-                gap: 15px;
-            }
-
-            .btn {
+            .board-select span {
+                display: inline-block;
+                padding: 8px 16px;
+                margin: 0 5px;
+                background: #4CAF50;
+                color: #fff;
+                border-radius: 4px;
                 cursor: pointer;
             }
 
-            .btn span, .sponsor-btn a {
+            .board-select span.active {
+                background: #388E3C;
+            }
+
+            .btn-wrap {
+                display: flex;
+                justify-content: center;
+                margin: 10px 0;
+            }
+
+            .btn-wrap div {
+                margin: 0 10px;
+            }
+
+            div > span {
                 display: inline-block;
                 padding: 10px 20px;
                 color: #fff;
-                background-color: #4CAF50; /* 绿色主色 */
+                background: #4CAF50;
                 border-radius: 5px;
-                transition: background-color 0.3s;
-                text-decoration: none; /* 去除链接下划线 */
+                cursor: pointer;
             }
 
-            .btn span:hover, .sponsor-btn a:hover {
-                background-color: #45a049; /* hover加深 */
-            }
-
-            .btn.unable span {
-                background: #81C784; /* 禁用绿色 */
-                color: #e0e0e0;
+            div.unable span {
+                background: #A9A9A9;
+                color: #666;
                 cursor: not-allowed;
             }
 
-            /* 赞助按钮样式 */
-            .sponsor-wrap {
-                text-align: center;
-                margin-top: 10px; /* 与上方按钮区保持间距 */
-            }
-
-            /* 结果提示样式 */
             #result-wrap {
                 text-align: center;
-                font-size: 18px;
-                color: #333;
-                font-weight: 500;
+                margin: 30px 0;
+            }
+
+            .copyright {
+                text-align: center;
+                margin: 30px 0;
+                color: #666;
+                font-size: 14px;
             }
         </style>
     </head>
     <body>
-        <h3 id="result-wrap">单机五子棋</h3>
-        <!-- 棋盘画布 -->
-        <canvas height="450px" id="chess" width="450px"></canvas>
-        <!-- 控制区：棋盘大小选择 + 功能按钮 -->
-        <div class="control-wrap">
-            <!-- 棋盘大小选择 -->
-            <div class="board-size-wrap">
-                <div class="btn" id="size-15">
-                    <span>标准棋盘（15x15）</span>
-                </div>
-                <div class="btn" id="size-30">
-                    <span>大棋盘（30x30）</span>
-                </div>
-            </div>
-            <!-- 功能按钮 -->
-            <div class="btn-wrap">
-                <div class="btn" id='restart'>
-                    <span>重新开始</span>
-                </div>
-                <div class="btn unable" id='goback'>
-                    <span>悔棋</span>
-                </div>
-                <div class="btn unable" id='return'>
-                    <span>撤销悔棋</span>
-                </div>
-            </div>
-            <!-- 赞助按钮（新增） -->
-            <div class="sponsor-wrap">
-                <div class="sponsor-btn">
-                    <a href="payment/pay.html" target="_blank">赞助支持</a>
-                </div>
-            </div>
+        <h1 id="result-wrap">单机五子棋</h1>
+
+        <div class="board-select">
+            <b>棋盘大小：</b>
+            <span class="board-size" data-size="15">标准棋盘(15x15)</span>
+            <span class="board-size" data-size="30">超大棋盘(30x30)</span>
         </div>
 
-        <script charset="utf-8" type="text/javascript">
-            // 全局核心变量（支持棋盘大小动态切换）
-            var over = false;          // 游戏是否结束
-            var me = true;             // 是否玩家回合（true=玩家，false=AI）
-            var boardSize = 15;        // 默认棋盘大小（15x15）
-            var gridSize = 30;         // 每个格子尺寸（px）
-            var _nowi = 0, _nowj = 0;  // 玩家最后落子坐标
-            var _compi = 0, _compj = 0;// AI最后落子坐标
-            var _myWin = [];           // 玩家评分备份（用于悔棋）
-            var _compWin = [];         // AI评分备份（用于悔棋）
-            var backAble = false;      // 是否可悔棋
-            var returnAble = false;    // 是否可撤销悔棋
-            var resultTxt = document.getElementById('result-wrap');
-            var chess = document.getElementById("chess");
-            var context = chess.getContext('2d');
-            var chressBord = [];       // 棋盘状态（0=空，1=玩家，2=AI）
-            var myWin = [];            // 玩家赢法评分
-            var computerWin = [];      // AI赢法评分
-            var wins = [];             // 所有赢法组合
-            var count = 0;             // 赢法总数
+        <canvas height="450" id="chess" width="450"></canvas>
 
-            // DOM元素
-            var backbtn = document.getElementById("goback");
-            var returnbtn = document.getElementById("return");
-            var restartBtn = document.getElementById("restart");
-            var size15Btn = document.getElementById("size-15");
-            var size30Btn = document.getElementById("size-30");
+        <div class="btn-wrap">
+            <div class="restart" id='restart'><span>重新开始</span></div>
+            <div class="goback unable" id='goback'><span>悔棋</span></div>
+            <div class="return unable" id='return'><span>撤销</span></div>
+            <div class="sponsor" id='sponsor'><span>赞助支持</span></div>
+        </div>
+
+        <footer class="copyright">© <span id="currentYear"></span> 宅博士. 版权所有.</footer>
+
+        <script>
+            // 核心状态变量
+            let over = false, me = true;
+            let [_nowi, _nowj, _compi, _compj] = [0, 0, 0, 0];
+            let [_myWin, _compWin] = [[], []];
+            let [backAble, returnAble] = [false, false];
+            let resultTxt = document.getElementById('result-wrap');
+            let [chressBord, myWin, computerWin, wins] = [[], [], [], []];
+            let count = 0, boardSize = 15;
+            let chess = document.getElementById("chess");
+            let context = chess.getContext('2d');
+            let [backbtn, returnbtn] = [document.getElementById('goback'), document.getElementById('return')];
+
+            // 初始化年份
+            document.getElementById("currentYear").textContent = new Date().getFullYear();
 
             // 页面加载初始化
-            window.onload = function () {
-                initGame(boardSize); // 初始化15x15棋盘
-                bindEvents();        // 绑定所有事件
-            }
-
-            /**
-             * 1. 游戏初始化（核心函数，支持动态切换棋盘大小）
-             * @param {number} size - 棋盘尺寸（15或30）
-             */
-            function initGame(size) {
-                // 重置游戏状态
-                over = false;
-                me = true;
-                backAble = false;
-                returnAble = false;
-                count = 0;
-                boardSize = size;
-                resultTxt.innerHTML = '--益智五子棋--';
-
-                // 调整画布大小（size * 格子尺寸）
-                chess.width = boardSize * gridSize;
-                chess.height = boardSize * gridSize;
-
-                // 初始化棋盘状态数组（size x size）
-                chressBord = Array.from({length: boardSize}, () => Array(boardSize).fill(0));
-
-                // 初始化赢法数组（三维数组：wins[i][j][k] = 是否在第k种赢法中）
-                wins = Array.from({length: boardSize}, () =>
-                    Array.from({length: boardSize}, () => [])
-                );
-
-                // 生成所有赢法（横、竖、正斜线、反斜线）
-                generateWins();
-
-                // 初始化评分数组（玩家+AI）及备份数组
-                myWin = Array(count).fill(0);
-                computerWin = Array(count).fill(0);
-                _myWin = Array(count).fill(0);
-                _compWin = Array(count).fill(0);
-
-                // 重置按钮状态
-                backbtn.className = "btn unable";
-                returnbtn.className = "btn unable";
-
-                // 绘制棋盘
+            window.onload = () => {
+                initBoard();
                 drawChessBoard();
-            }
+                bindEvents();
+            };
 
-            /**
-             * 2. 生成所有赢法组合（横、竖、正斜线、反斜线）
-             */
-            function generateWins() {
-                // ① 横线赢法（每行有 size-4 种）
-                for (var i = 0; i < boardSize; i++) {
-                    for (var j = 0; j < boardSize - 4; j++) {
-                        for (var k = 0; k < 5; k++) {
-                            wins[i][j + k][count] = true;
-                        }
-                        count++;
-                    }
-                }
-
-                // ② 竖线赢法（每列有 size-4 种）
-                for (var i = 0; i < boardSize; i++) {
-                    for (var j = 0; j < boardSize - 4; j++) {
-                        for (var k = 0; k < 5; k++) {
-                            wins[j + k][i][count] = true;
-                        }
-                        count++;
-                    }
-                }
-
-                // ③ 正斜线赢法（左上→右下，共 (size-4)x(size-4) 种）
-                for (var i = 0; i < boardSize - 4; i++) {
-                    for (var j = 0; j < boardSize - 4; j++) {
-                        for (var k = 0; k < 5; k++) {
-                            wins[i + k][j + k][count] = true;
-                        }
-                        count++;
-                    }
-                }
-
-                // ④ 反斜线赢法（右上→左下，共 (size-4)x(size-4) 种）
-                for (var i = 0; i < boardSize - 4; i++) {
-                    for (var j = boardSize - 1; j >= 4; j--) {
-                        for (var k = 0; k < 5; k++) {
-                            wins[i + k][j - k][count] = true;
-                        }
-                        count++;
-                    }
-                }
-            }
-
-            /**
-             * 3. 绘制棋盘
-             */
-            function drawChessBoard() {
-                context.clearRect(0, 0, chess.width, chess.height); // 清空画布
-                context.strokeStyle = '#bfbfbf'; // 棋盘线颜色
-
-                // 绘制横线和竖线（共 size 条线）
-                for (var i = 0; i < boardSize; i++) {
-                    // 横线
-                    context.beginPath();
-                    context.moveTo(gridSize / 2, gridSize / 2 + i * gridSize);
-                    context.lineTo(chess.width - gridSize / 2, gridSize / 2 + i * gridSize);
-                    context.stroke();
-
-                    // 竖线
-                    context.beginPath();
-                    context.moveTo(gridSize / 2 + i * gridSize, gridSize / 2);
-                    context.lineTo(gridSize / 2 + i * gridSize, chess.height - gridSize / 2);
-                    context.stroke();
-                }
-            }
-
-            /**
-             * 4. 落子函数（绘制棋子+更新状态）
-             * @param {number} i - 横坐标
-             * @param {number} j - 纵坐标
-             * @param {boolean} isPlayer - 是否玩家落子
-             */
-            function oneStep(i, j, isPlayer) {
-                context.beginPath();
-                // 棋子位置（格子中心）
-                var x = gridSize / 2 + i * gridSize;
-                var y = gridSize / 2 + j * gridSize;
-                // 绘制圆形棋子（半径13px，保持视觉比例）
-                context.arc(x, y, 13, 0, 2 * Math.PI);
-                context.closePath();
-
-                // 渐变效果（玩家黑棋，AI白棋）
-                var gradient = context.createRadialGradient(x + 2, y - 2, 13, x + 2, y - 2, 0);
-                if (isPlayer) {
-                    gradient.addColorStop(0, '#0a0a0a'); // 黑棋深灰
-                    gradient.addColorStop(1, '#636766'); // 黑棋浅灰
-                } else {
-                    gradient.addColorStop(0, '#d1d1d1'); // 白棋浅灰
-                    gradient.addColorStop(1, '#f9f9f9'); // 白棋白色
-                }
-                context.fillStyle = gradient;
-                context.fill();
-            }
-
-            /**
-             * 5. 悔棋函数（删除棋子+恢复状态）
-             * @param {number} i - 横坐标
-             * @param {number} j - 纵坐标
-             */
-            function minusStep(i, j) {
-                // 清除棋子区域（格子范围）
-                context.clearRect(i * gridSize, j * gridSize, gridSize, gridSize);
-                // 重绘被清除的棋盘线（保持棋盘完整）
-                context.strokeStyle = '#bfbfbf';
-                // 重绘竖线
-                context.beginPath();
-                context.moveTo(gridSize / 2 + i * gridSize, j * gridSize);
-                context.lineTo(gridSize / 2 + i * gridSize, (j + 1) * gridSize);
-                context.stroke();
-                // 重绘横线
-                context.beginPath();
-                context.moveTo(i * gridSize, gridSize / 2 + j * gridSize);
-                context.lineTo((i + 1) * gridSize, gridSize / 2 + j * gridSize);
-                context.stroke();
-            }
-
-            /**
-             * 6. 最强AI算法（优化核心：分级评分+攻防优先级）
-             * 评分规则（从高到低）：
-             * - 活四（100000）> 冲四（50000）> 活三（10000）> 冲三（5000）> 活二（1000）> 冲二（500）> 活一（100）
-             */
-            function computerAI() {
-                var myScore = Array.from({length: boardSize}, () => Array(boardSize).fill(0)); // 玩家评分（AI需阻挡）
-                var computerScore = Array.from({length: boardSize}, () => Array(boardSize).fill(0)); // AI评分（AI需进攻）
-                var maxScore = 0;
-                var u = 0, v = 0; // AI落子坐标
-
-                // 遍历所有空位，计算评分
-                for (var i = 0; i < boardSize; i++) {
-                    for (var j = 0; j < boardSize; j++) {
-                        if (chressBord[i][j] === 0) {
-                            for (var k = 0; k < count; k++) {
-                                if (wins[i][j][k]) {
-                                    // ① 计算玩家评分（AI优先阻挡）
-                                    switch (myWin[k]) {
-                                        case 4:
-                                            myScore[i][j] += 100000;
-                                            break; // 玩家活四（必须阻挡）
-                                        case 3:
-                                            myScore[i][j] += 10000;
-                                            break;  // 玩家活三（优先阻挡）
-                                        case 2:
-                                            myScore[i][j] += 1000;
-                                            break;   // 玩家活二
-                                        case 1:
-                                            myScore[i][j] += 100;
-                                            break;    // 玩家活一
-                                    }
-                                    // 补充冲四/冲三（玩家有阻挡的连续子）
-                                    if (myWin[k] === 4) myScore[i][j] += 50000; // 玩家冲四
-                                    if (myWin[k] === 3) myScore[i][j] += 5000;  // 玩家冲三
-
-                                    // ② 计算AI评分（AI进攻）
-                                    switch (computerWin[k]) {
-                                        case 4:
-                                            computerScore[i][j] += 100000;
-                                            break; // AI活四（优先进攻）
-                                        case 3:
-                                            computerScore[i][j] += 10000;
-                                            break;  // AI活三
-                                        case 2:
-                                            computerScore[i][j] += 1000;
-                                            break;   // AI活二
-                                        case 1:
-                                            computerScore[i][j] += 100;
-                                            break;    // AI活一
-                                    }
-                                    // 补充冲四/冲三（AI有阻挡的连续子）
-                                    if (computerWin[k] === 4) computerScore[i][j] += 50000; // AI冲四
-                                    if (computerWin[k] === 3) computerScore[i][j] += 5000;  // AI冲三
-                                }
-                            }
-
-                            // ③ 选择最高分位置（优先阻挡玩家，再进攻）
-                            // 玩家评分更高：优先阻挡
-                            if (myScore[i][j] > maxScore) {
-                                maxScore = myScore[i][j];
-                                u = i;
-                                v = j;
-                            }
-                            // 评分相等：选择对AI进攻更有利的位置
-                            else if (myScore[i][j] === maxScore) {
-                                if (computerScore[i][j] > computerScore[u][v]) {
-                                    u = i;
-                                    v = j;
-                                }
-                            }
-
-                            // AI评分更高：优先进攻
-                            if (computerScore[i][j] > maxScore) {
-                                maxScore = computerScore[i][j];
-                                u = i;
-                                v = j;
-                            }
-                            // 评分相等：选择对玩家阻挡更有利的位置
-                            else if (computerScore[i][j] === maxScore) {
-                                if (myScore[i][j] > myScore[u][v]) {
-                                    u = i;
-                                    v = j;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // AI落子
-                _compi = u;
-                _compj = v;
-                oneStep(u, v, false);
-                chressBord[u][v] = 2; // 标记AI位置
-
-                // 更新AI评分+判断是否赢
-                for (var k = 0; k < count; k++) {
-                    if (wins[u][v][k]) {
-                        computerWin[k]++;
-                        _myWin[k] = myWin[k]; // 备份玩家当前评分（用于悔棋）
-                        myWin[k] = 6; // 玩家无法在该赢法获胜
-                        if (computerWin[k] === 5) {
-                            resultTxt.innerHTML = 'o(╯□╰)o，计算机赢了，继续加油哦！';
-                            over = true;
-                        }
-                    }
-                }
-
-                // 切换回合+更新悔棋状态
-                if (!over) me = !me;
-                backAble = true;
-                returnAble = false;
-                returnbtn.className = "btn unable";
-            }
-
-            /**
-             * 7. 绑定所有事件（点击、按钮等）
-             */
+            // 统一绑定事件
             function bindEvents() {
-                // ① 玩家落子（点击棋盘）
-                chess.onclick = function (e) {
-                    if (over || !me) return; // 游戏结束/非玩家回合，不响应
+                // 棋盘大小选择
+                document.querySelectorAll('.board-size').forEach(btn => {
+                    btn.addEventListener('click', function () {
+                        if (over) return;
+                        document.querySelectorAll('.board-size').forEach(b => b.classList.remove('active'));
+                        this.classList.add('active');
+                        boardSize = parseInt(this.dataset.size);
+                        chess.width = chess.height = boardSize * 30;
+                        initBoard();
+                        drawChessBoard();
+                        resetGameState();
+                    });
+                });
+                document.querySelector('[data-size="15"]').classList.add('active');
 
-                    // 计算落子坐标（基于画布偏移）
-                    var rect = chess.getBoundingClientRect();
-                    var x = e.clientX - rect.left;
-                    var y = e.clientY - rect.top;
-                    var i = Math.floor(x / gridSize);
-                    var j = Math.floor(y / gridSize);
-                    _nowi = i;
-                    _nowj = j;
+                // 赞助按钮
+                document.getElementById("sponsor").onclick = () => window.open("payment/pay.html", "_blank");
 
-                    // 空位才能落子
+                // 重新开始
+                document.getElementById("restart").onclick = () => window.location.reload();
+
+                // 玩家下棋
+                chess.onclick = e => {
+                    if (over || !me) return;
+                    backbtn.classList.remove('unable');
+                    const i = Math.floor(e.offsetX / 30), j = Math.floor(e.offsetY / 30);
+                    [_nowi, _nowj] = [i, j];
                     if (chressBord[i][j] === 0) {
-                        oneStep(i, j, true);
-                        chressBord[i][j] = 1; // 标记玩家位置
-
-                        // 更新玩家评分+判断是否赢
-                        for (var k = 0; k < count; k++) {
+                        oneStep(i, j, me);
+                        chressBord[i][j] = 1;
+                        // 检查胜利
+                        let win = false;
+                        for (let k = 0; k < count; k++) {
                             if (wins[i][j][k]) {
                                 myWin[k]++;
-                                _compWin[k] = computerWin[k]; // 备份AI当前评分（用于悔棋）
-                                computerWin[k] = 6; // AI无法在该赢法获胜
+                                _compWin[k] = computerWin[k];
+                                computerWin[k] = 6;
                                 if (myWin[k] === 5) {
                                     resultTxt.innerHTML = '恭喜，你赢了！';
-                                    over = true;
+                                    over = win = true;
+                                    break;
                                 }
                             }
                         }
-
-                        // 玩家未赢则切换AI回合
-                        if (!over) {
-                            me = !me;
-                            computerAI();
+                        if (!win) {
+                            me = false;
+                            setTimeout(computerAI, 500); // 延迟500ms落子
                         }
-
-                        // 启用悔棋按钮
-                        backbtn.className = "btn";
                     }
-                }
+                };
 
-                // ② 重新开始
-                restartBtn.onclick = function () {
-                    initGame(boardSize);
-                }
-
-                // ③ 悔棋（恢复玩家+AI最后一步）
-                backbtn.onclick = function () {
-                    if (!backAble) return;
-
-                    // 重置游戏状态（未结束+玩家回合）
+                // 悔棋
+                backbtn.onclick = () => {
+                    if (!backAble || over) return;
                     over = false;
                     me = true;
-                    resultTxt.innerHTML = '--益智五子棋--';
-
-                    // 1. 恢复玩家空位+评分
+                    returnbtn.classList.remove('unable');
+                    // 玩家悔棋
                     chressBord[_nowi][_nowj] = 0;
                     minusStep(_nowi, _nowj);
-                    for (var k = 0; k < count; k++) {
+                    for (let k = 0; k < count; k++) {
                         if (wins[_nowi][_nowj][k]) {
                             myWin[k]--;
-                            computerWin[k] = _compWin[k]; // 恢复AI评分
+                            computerWin[k] = _compWin[k];
                         }
                     }
-
-                    // 2. 恢复AI空位+评分
+                    // 计算机悔棋
                     chressBord[_compi][_compj] = 0;
                     minusStep(_compi, _compj);
-                    for (var k = 0; k < count; k++) {
+                    for (let k = 0; k < count; k++) {
                         if (wins[_compi][_compj][k]) {
                             computerWin[k]--;
-                            myWin[k] = _myWin[k]; // 恢复玩家评分（修复原代码i→k的bug）
+                            myWin[k] = _myWin[k];
                         }
                     }
+                    resultTxt.innerHTML = '单机五子棋';
+                    [returnAble, backAble] = [true, false];
+                    backbtn.classList.add('unable');
+                };
 
-                    // 启用撤销悔棋，禁用悔棋
-                    returnbtn.className = "btn";
-                    backbtn.className = "btn unable";
-                    returnAble = true;
-                    backAble = false;
-                }
-
-                // ④ 撤销悔棋（恢复玩家+AI最后一步）
-                returnbtn.onclick = function () {
-                    if (!returnAble) return;
-
-                    // 1. 恢复玩家落子+评分
+                // 撤销悔棋
+                returnbtn.onclick = () => {
+                    if (!returnAble || over) return;
+                    // 玩家撤销悔棋
                     chressBord[_nowi][_nowj] = 1;
-                    oneStep(_nowi, _nowj, true);
-                    var isPlayerWin = false;
-                    for (var k = 0; k < count; k++) {
+                    oneStep(_nowi, _nowj, me);
+                    let win = false;
+                    for (let k = 0; k < count; k++) {
                         if (wins[_nowi][_nowj][k]) {
                             myWin[k]++;
                             _compWin[k] = computerWin[k];
                             computerWin[k] = 6;
-                            if (myWin[k] === 5) isPlayerWin = true;
+                            if (myWin[k] === 5) {
+                                resultTxt.innerHTML = '恭喜，你赢了！';
+                                over = win = true;
+                                break;
+                            }
                         }
                     }
-
-                    // 2. 恢复AI落子+评分
-                    chressBord[_compi][_compj] = 2;
-                    oneStep(_compi, _compj, false);
-                    var isAIWin = false;
-                    for (var k = 0; k < count; k++) {
-                        if (wins[_compi][_compj][k]) {
-                            computerWin[k]++;
-                            _myWin[k] = myWin[k];
-                            myWin[k] = 6;
-                            if (computerWin[k] === 5) isAIWin = true;
+                    // 计算机撤销悔棋（玩家未胜时）
+                    if (!win) {
+                        chressBord[_compi][_compj] = 2;
+                        oneStep(_compi, _compj, false);
+                        for (let k = 0; k < count; k++) {
+                            if (wins[_compi][_compj][k]) {
+                                computerWin[k]++;
+                                _myWin[k] = myWin[k];
+                                myWin[k] = 6;
+                                if (computerWin[k] === 5) {
+                                    resultTxt.innerHTML = '计算机赢了，继续加油哦！';
+                                    over = true;
+                                    break;
+                                }
+                            }
                         }
                     }
+                    returnbtn.classList.add('unable');
+                    [returnAble, backAble] = [false, true];
+                    backbtn.classList.remove('unable');
+                    if (win) me = false;
+                    else if (!over) me = !me;
+                };
+            }
 
-                    // 3. 判断是否恢复赢局状态
-                    if (isPlayerWin) {
-                        resultTxt.innerHTML = '恭喜，你赢了！';
-                        over = true;
-                    } else if (isAIWin) {
-                        resultTxt.innerHTML = 'o(╯□╰)o，计算机赢了，继续加油哦！';
-                        over = true;
+            // 重置游戏状态
+            function resetGameState() {
+                over = false;
+                me = true;
+                [backAble, returnAble] = [false, false];
+                backbtn.classList.add('unable');
+                returnbtn.classList.add('unable');
+                resultTxt.innerHTML = '单机五子棋';
+            }
+
+            // 初始化棋盘数据
+            function initBoard() {
+                [chressBord, wins, myWin, computerWin, _myWin, _compWin] = [[], [], [], [], [], []];
+                count = 0;
+                // 初始化棋盘和赢法数组
+                for (let i = 0; i < boardSize; i++) {
+                    chressBord[i] = new Array(boardSize).fill(0);
+                    wins[i] = Array.from({length: boardSize}, () => []);
+                }
+                const winLineLen = 5, maxJ = boardSize - winLineLen;
+                // 横线赢法
+                for (let i = 0; i < boardSize; i++) {
+                    for (let j = 0; j <= maxJ; j++) {
+                        for (let k = 0; k < winLineLen; k++) wins[i][j + k][count] = true;
+                        count++;
+                    }
+                }
+                // 竖线赢法
+                for (let i = 0; i < boardSize; i++) {
+                    for (let j = 0; j <= maxJ; j++) {
+                        for (let k = 0; k < winLineLen; k++) wins[j + k][i][count] = true;
+                        count++;
+                    }
+                }
+                // 正斜线赢法
+                for (let i = 0; i <= maxJ; i++) {
+                    for (let j = 0; j <= maxJ; j++) {
+                        for (let k = 0; k < winLineLen; k++) wins[i + k][j + k][count] = true;
+                        count++;
+                    }
+                }
+                // 反斜线赢法
+                for (let i = 0; i <= maxJ; i++) {
+                    for (let j = boardSize - 1; j >= winLineLen - 1; j--) {
+                        for (let k = 0; k < winLineLen; k++) wins[i + k][j - k][count] = true;
+                        count++;
+                    }
+                }
+                // 初始化赢法统计
+                for (let i = 0; i < count; i++) {
+                    [myWin[i], _myWin[i], computerWin[i], _compWin[i]] = [0, 0, 0, 0];
+                }
+            }
+
+            // 计算机AI
+            function computerAI() {
+                if (over) return;
+                let [myScore, computerScore] = [[], []];
+                let [max, u, v] = [0, 0, 0];
+                // 初始化分数数组
+                for (let i = 0; i < boardSize; i++) {
+                    myScore[i] = new Array(boardSize).fill(0);
+                    computerScore[i] = new Array(boardSize).fill(0);
+                }
+                // 计算分数
+                for (let i = 0; i < boardSize; i++) {
+                    for (let j = 0; j < boardSize; j++) {
+                        if (chressBord[i][j] === 0) {
+                            for (let k = 0; k < count; k++) {
+                                if (wins[i][j][k]) {
+                                    // 玩家分数
+                                    if (myWin[k] === 1) myScore[i][j] += 200;
+                                    else if (myWin[k] === 2) myScore[i][j] += 400;
+                                    else if (myWin[k] === 3) myScore[i][j] += 2000;
+                                    else if (myWin[k] === 4) myScore[i][j] += 10000;
+                                    // 计算机分数
+                                    if (computerWin[k] === 1) computerScore[i][j] += 220;
+                                    else if (computerWin[k] === 2) computerScore[i][j] += 420;
+                                    else if (computerWin[k] === 3) computerScore[i][j] += 2100;
+                                    else if (computerWin[k] === 4) computerScore[i][j] += 20000;
+                                }
+                            }
+                            // 选择最优位置
+                            if (myScore[i][j] > max || (myScore[i][j] === max && computerScore[i][j] > computerScore[u][v])) {
+                                [max, u, v] = [myScore[i][j], i, j];
+                            }
+                            if (computerScore[i][j] > max || (computerScore[i][j] === max && myScore[i][j] > myScore[u][v])) {
+                                [max, u, v] = [computerScore[i][j], i, j];
+                            }
+                        }
+                    }
+                }
+                // 落子
+                [_compi, _compj] = [u, v];
+                oneStep(u, v, false);
+                chressBord[u][v] = 2;
+                // 检查胜利
+                for (let k = 0; k < count; k++) {
+                    if (wins[u][v][k]) {
+                        computerWin[k]++;
+                        _myWin[k] = myWin[k];
+                        myWin[k] = 6;
+                        if (computerWin[k] === 5) {
+                            resultTxt.innerHTML = '计算机赢了，继续加油哦！';
+                            over = true;
+                            break;
+                        }
+                    }
+                }
+                if (!over) me = true;
+                [backAble, returnAble] = [true, false];
+                returnbtn.classList.add('unable');
+            }
+
+            // 绘制棋盘
+            function drawChessBoard() {
+                context.clearRect(0, 0, chess.width, chess.height);
+                context.strokeStyle = '#bfbfbf';
+                for (let i = 0; i < boardSize; i++) {
+                    context.moveTo(15 + i * 30, 15);
+                    context.lineTo(15 + i * 30, chess.height - 15);
+                    context.stroke();
+                    context.moveTo(15, 15 + i * 30);
+                    context.lineTo(chess.width - 15, 15 + i * 30);
+                    context.stroke();
+                }
+            }
+
+            // 绘制棋子（带动画）
+            function oneStep(i, j, isMe) {
+                const [centerX, centerY, radius] = [15 + i * 30, 15 + j * 30, 13];
+                let [alpha, scale] = [0, 0.3];
+
+                function animate() {
+                    context.save();
+                    context.clearRect(centerX - radius - 2, centerY - radius - 2, radius * 2 + 4, radius * 2 + 4);
+                    context.beginPath();
+                    context.arc(centerX, centerY, radius * scale, 0, 2 * Math.PI);
+                    context.closePath();
+                    // 棋子渐变
+                    const gradient = context.createRadialGradient(
+                        centerX + 2, centerY - 2, radius * scale,
+                        centerX + 2, centerY - 2, 0
+                    );
+                    if (isMe) {
+                        gradient.addColorStop(0, '#0a0a0a');
+                        gradient.addColorStop(1, '#636766');
                     } else {
-                        me = !me; // 恢复AI回合
+                        gradient.addColorStop(0, '#d1d1d1');
+                        gradient.addColorStop(1, '#f9f9f9');
                     }
-
-                    // 禁用撤销悔棋，启用悔棋
-                    returnbtn.className = "btn unable";
-                    backbtn.className = "btn";
-                    returnAble = false;
-                    backAble = true;
+                    context.fillStyle = gradient;
+                    context.globalAlpha = alpha;
+                    context.fill();
+                    context.restore();
+                    // 动画更新
+                    alpha += 0.2;
+                    scale += 0.14;
+                    if (alpha < 1) requestAnimationFrame(animate);
                 }
 
-                // ⑤ 切换棋盘大小（15x15）
-                size15Btn.onclick = function () {
-                    if (boardSize === 15) return; // 已选中，不重复执行
-                    initGame(15);
-                }
+                animate();
+            }
 
-                // ⑥ 切换棋盘大小（30x30）
-                size30Btn.onclick = function () {
-                    if (boardSize === 30) return; // 已选中，不重复执行
-                    initGame(30);
-                }
+            // 移除棋子（重绘棋盘线时使用当前棋盘颜色）
+            function minusStep(i, j) {
+                const [x, y] = [i * 30, j * 30];
+                context.clearRect(x, y, 30, 30);
+                // 重绘被擦除的线（使用当前棋盘颜色#888）
+                context.beginPath();
+                context.moveTo(15 + i * 30, y);
+                context.lineTo(15 + i * 30, y + 30);
+                context.moveTo(x, 15 + j * 30);
+                context.lineTo(x + 30, 15 + j * 30);
+                context.stroke();
             }
         </script>
     </body>
