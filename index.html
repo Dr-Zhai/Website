@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="utf-8" />
+        <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+        <title>单机五子棋</title>
+        <style>
+            body {
+                font-family: "Microsoft YaHei", "微软雅黑", sans-serif;
+                margin: 0;
+                padding: 10px;
+            }
+
+            canvas {
+                display: block;
+                margin: 20px auto;
+                box-shadow: -2px -2px 2px #efefef, 5px 5px 5px #b9b9b9;
+                cursor: pointer;
+                max-width: 100%;
+                height: auto;
+            }
+
+            .board-select {
+                text-align: center;
+                margin: 20px 0;
+            }
+
+            .board-select span {
+                display: inline-block;
+                padding: 8px 16px;
+                margin: 0 5px;
+                background: #4CAF50;
+                color: #fff;
+                border-radius: 4px;
+                cursor: pointer;
+            }
+
+            .board-select span.active {
+                background: skyblue;
+            }
+
+            .stats {
+                text-align: center;
+                margin: 10px 0;
+                font-size: 16px;
+                color: #333;
+            }
+
+            .btn-wrap {
+                display: flex;
+                justify-content: center;
+                margin: 10px 0;
+                gap: 10px;
+            }
+
+            .btn-wrap div {
+                margin: 0 10px;
+            }
+
+            div>span {
+                display: inline-block;
+                padding: 10px 20px;
+                color: #fff;
+                background: #4CAF50;
+                border-radius: 5px;
+                cursor: pointer;
+            }
+
+            div.unable span {
+                background: #A9A9A9;
+                color: #666;
+                cursor: not-allowed;
+            }
+
+            .copyright {
+                text-align: center;
+                margin: 30px 0;
+                color: #666;
+                font-size: 14px;
+            }
+
+            @media (max-width: 768px) {
+                .board-select {
+                    margin: 10px 0;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    gap: 8px;
+                }
+
+                .board-select span {
+                    padding: 6px 12px;
+                    margin: 0 3px;
+                }
+
+                .stats {
+                    margin: 6px 0;
+                }
+
+                canvas {
+                    margin: 10px auto;
+                }
+
+                .btn-wrap {
+                    padding: 0 10px;
+                    display: flex;
+                    flex-wrap: wrap;
+                    justify-content: center;
+                    align-items: center;
+                    gap: 8px;
+                }
+
+                .btn-wrap div {
+                    margin: 0;
+                    flex: 1 1 calc(50% - 10px);
+                    text-align: center;
+                }
+
+                .btn-wrap span {
+                    padding: 8px 16px;
+                    width: 100%;
+                    box-sizing: border-box;
+                }
+
+                .copyright {
+                    font-size: 0.8rem;
+                    margin: 20px 0;
+                }
+
+                .sponsor {
+                    order: 2;
+                }
+
+                .return {
+                    order: 3;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <audio id="bgm" autoplay loop playsinline>
+            <source src="assets/musics/animation.ogg" type="audio/ogg" />
+        </audio>
+        <h1 id="result-wrap" style="text-align: center">单机五子棋</h1>
+        <div class="board-select">
+            <b>棋盘大小：</b>
+            <span class="board-size" data-size="15">标准棋盘(15x15)</span>
+            <span class="board-size" data-size="25">超大棋盘(25x25)</span>
+        </div>
+        <div class="stats">
+            <div>本局已悔棋：<b id="regretCount">0</b>次</div>
+            <div>本局已输棋：<b id="loseCount">0</b>次</div>
+        </div>
+        <canvas height="450" id="chess" width="450"></canvas>
+        <div class="btn-wrap">
+            <div class="restart" id='restart'><span>重新开始</span></div>
+            <div class="goback unable" id='goback'><span>悔棋</span></div>
+            <div class="return unable" id='return'><span>撤销</span></div>
+            <div class="sponsor" id='sponsor'><span>赞助支持</span></div>
+        </div>
+        <footer class="copyright">© <span id="currentYear"></span> 宅博士. 版权所有.</footer>
+        <script>
+            const WIN_CACHE = {};
+            const CONST = {
+                CELL_SIZE: 30,
+                PIECE_RADIUS: 13,
+                BOARD_PADDING: 15,
+                PLAYER_COLOR: {
+                    start: '#0a0a0a',
+                    end: '#636766'
+                },
+                COMPUTER_COLOR: {
+                    start: '#d1d1d1',
+                    end: '#f9f9f9'
+                },
+                WIN_COLOR: '#ff0000',
+                PLAYER_MARK: '#00ff00',
+                COMPUTER_MARK: '#ff0000',
+                ANIM_STEP: 0.05,
+                ANIM_EASE: p => 1 - Math.pow(1 - p, 3)
+            };
+            const DOM = {
+                bgm: document.getElementById('bgm'),
+                chess: document.getElementById('chess'),
+                resultWrap: document.getElementById('result-wrap'),
+                restartBtn: document.getElementById('restart'),
+                backBtn: document.getElementById('goback'),
+                returnBtn: document.getElementById('return'),
+                sponsorBtn: document.getElementById('sponsor'),
+                regretCount: document.getElementById('regretCount'),
+                loseCount: document.getElementById('loseCount'),
+                currentYear: document.getElementById('currentYear'),
+                boardSizes: document.querySelectorAll('.board-size')
+            };
+            const ctx = DOM.chess.getContext('2d');
+            const state = {
+                over: false,
+                isPlayerTurn: true,
+                playerMove: null,
+                computerMove: null,
+                canBack: false,
+                canReturn: false,
+                boardSize: 15,
+                chessWidth: 450,
+                chessHeight: 450,
+                chessBoard: [],
+                myWin: [],
+                computerWin: [],
+                wins: [],
+                winCount: 0,
+                maxPos: 10,
+                regretCount: 0,
+                loseCount: 0,
+                hasCountLose: false,
+                winLine: [],
+                winner: null,
+                isCompWinRegret: false,
+                currentMove: null,
+                prevMove: null,
+                savedMove: null,
+                animPieces: {},
+                piecePosCache: {}
+            };
+            DOM.currentYear.textContent = new Date().getFullYear();
+            window.onload = () => {
+                initBoard();
+                drawChessBoard();
+                bindEvents();
+                DOM.boardSizes.forEach(btn => btn.dataset.size === '15' && btn.classList.add('active'));
+
+                DOM.bgm.play().catch(() => {
+                    DOM.resultWrap.textContent = "戳我";
+                    DOM.resultWrap.onclick = () => {
+                        DOM.bgm.volume = 1;
+                        DOM.resultWrap.textContent = "单机五子棋";
+                        if (DOM.bgm.paused) DOM.bgm.play();
+                        else DOM.bgm.pause();
+                    }
+                })
+            };
+
+            function updateBtnStates() {
+                DOM.backBtn.classList[!state.canBack ? 'add' : 'remove']('unable');
+                DOM.returnBtn.classList[!state.canReturn ? 'add' : 'remove']('unable');
+            }
+
+            function getActiveMove() {
+                return state.currentMove?.player || state.currentMove?.computer ? state.currentMove : null;
+            }
+
+            function refreshWinArrays() {
+                state.myWin.fill(0);
+                state.computerWin.fill(0);
+                for (let i = 0; i < state.boardSize; i++) {
+                    for (let j = 0; j < state.boardSize; j++) {
+                        if (state.chessBoard[i][j] === 1) {
+                            for (let k = 0; k < state.winCount; k++) {
+                                if (state.wins[i][j][k]) {
+                                    state.myWin[k]++;
+                                    state.computerWin[k] = 6;
+                                }
+                            }
+                        } else if (state.chessBoard[i][j] === 2) {
+                            for (let k = 0; k < state.winCount; k++) {
+                                if (state.wins[i][j][k]) {
+                                    state.computerWin[k]++;
+                                    state.myWin[k] = 6;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            function bindEvents() {
+                DOM.boardSizes.forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        if (state.winner || state.over) return;
+                        DOM.boardSizes.forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        state.boardSize = parseInt(btn.dataset.size);
+                        initBoard();
+                        drawChessBoard();
+                        resetGameState();
+                    });
+                });
+                DOM.sponsorBtn.onclick = () => window.open("payment/pay.html", "_blank");
+                DOM.restartBtn.onclick = resetGameState;
+
+                // 处理移动端点击事件，获取正确的棋盘坐标
+                function getMobileCorrectPos(e, canvas) {
+                    const rect = canvas.getBoundingClientRect();
+                    const scaleX = canvas.width / rect.width;
+                    const scaleY = canvas.height / rect.height;
+                    const drawX = (e.clientX - rect.left) * scaleX;
+                    const drawY = (e.clientY - rect.top) * scaleY;
+                    const i = Math.floor(drawX / CONST.CELL_SIZE);
+                    const j = Math.floor(drawY / CONST.CELL_SIZE);
+                    return {
+                        i,
+                        j
+                    };
+                }
+
+                DOM.chess.onclick = e => {
+                    if (!state.isPlayerTurn || state.over || state.winner) return;
+                    const {
+                        i,
+                        j
+                    } = getMobileCorrectPos(e, DOM.chess);
+                    if (i < 0 || i >= state.boardSize || j < 0 || j >= state.boardSize || state.chessBoard[i][j] !==
+                        0) return;
+                    state.playerMove = {
+                        i,
+                        j
+                    };
+                    state.chessBoard[i][j] = 1;
+                    state.animPieces[`${i},${j}`] = {
+                        isPlayer: true,
+                        progress: 0
+                    };
+                    requestAnimationFrame(animatePieces);
+                    if (checkWin(i, j, true)) {
+                        state.currentMove = {
+                            player: {
+                                ...state.playerMove
+                            },
+                            computer: null
+                        };
+                        DOM.resultWrap.innerHTML = '很厉害，你赢了！';
+                        updateGameOver('player');
+                        return;
+                    }
+                    if (checkDraw()) {
+                        DOM.resultWrap.innerHTML = '棋盘已满，和棋！';
+                        updateGameOver('draw');
+                        return;
+                    }
+                    state.isPlayerTurn = false;
+                    setTimeout(computerAI, 300);
+                };
+                DOM.backBtn.onclick = () => {
+                    if (state.winner === 'player' || !state.canBack || !state.currentMove || state.canReturn)
+                        return;
+                    state.isCompWinRegret = state.winner === 'computer';
+                    DOM.regretCount.textContent = ++state.regretCount;
+                    if (state.winner === 'computer' && !state.hasCountLose) {
+                        DOM.loseCount.textContent = ++state.loseCount;
+                        state.hasCountLose = true;
+                    }
+                    state.savedMove = state.currentMove;
+                    const {
+                        player,
+                        computer
+                    } = state.currentMove;
+                    player && (state.chessBoard[player.i][player.j] = 0);
+                    computer && (state.chessBoard[computer.i][computer.j] = 0);
+                    state.animPieces = {};
+                    Object.assign(state, {
+                        currentMove: state.prevMove,
+                        prevMove: null,
+                        over: false,
+                        isPlayerTurn: true,
+                        winner: null,
+                        winLine: [],
+                        canReturn: true,
+                        canBack: false
+                    });
+                    refreshWinArrays();
+                    updateBtnStates();
+                    redrawAllPieces();
+                    DOM.resultWrap.innerHTML = '单机五子棋';
+                };
+                DOM.returnBtn.onclick = () => {
+                    if (!state.canReturn || !state.savedMove) return;
+                    const {
+                        player,
+                        computer
+                    } = state.savedMove;
+                    if (player) {
+                        state.chessBoard[player.i][player.j] = 1;
+                        state.animPieces[`${player.i},${player.j}`] = {
+                            isPlayer: true,
+                            progress: 0
+                        };
+                    }
+                    if (computer) {
+                        state.chessBoard[computer.i][computer.j] = 2;
+                        state.animPieces[`${computer.i},${computer.j}`] = {
+                            isPlayer: false,
+                            progress: 0
+                        };
+                    }
+                    requestAnimationFrame(animatePieces);
+                    state.prevMove = state.currentMove;
+                    state.currentMove = state.savedMove;
+                    state.savedMove = null;
+                    refreshWinArrays();
+                    const winner = checkRestoredWin();
+                    setTimeout(() => {
+                        if (winner === 'player') {
+                            DOM.resultWrap.innerHTML = '很厉害，你赢了！';
+                            updateGameOver('player');
+                        } else if (winner === 'computer') {
+                            DOM.resultWrap.innerHTML = '很遗憾，你输了！';
+                            updateGameOver('computer');
+                        } else {
+                            Object.assign(state, {
+                                over: false,
+                                winner: null,
+                                winLine: [],
+                                canBack: true,
+                                canReturn: false
+                            });
+                        }
+                        state.isCompWinRegret = false;
+                        state.hasCountLose = false;
+                        updateBtnStates();
+                        redrawAllPieces();
+                    }, 300);
+                };
+            }
+
+            function initBoard() {
+                const {
+                    boardSize
+                } = state;
+                state.chessWidth = boardSize * CONST.CELL_SIZE;
+                state.chessHeight = boardSize * CONST.CELL_SIZE;
+                state.maxPos = boardSize - 5;
+                DOM.chess.width = state.chessWidth;
+                DOM.chess.height = state.chessHeight;
+                state.chessBoard = Array.from({
+                    length: boardSize
+                }, () => new Array(boardSize).fill(0));
+                if (WIN_CACHE[boardSize]) {
+                    state.wins = WIN_CACHE[boardSize].wins;
+                    state.winCount = WIN_CACHE[boardSize].winCount;
+                } else {
+                    state.wins = Array.from({
+                            length: boardSize
+                        }, () =>
+                        Array.from({
+                            length: boardSize
+                        }, () => new Array(0).fill(false))
+                    );
+                    state.winCount = 0;
+                    for (let i = 0; i < boardSize; i++) {
+                        for (let j = 0; j <= state.maxPos; j++) {
+                            for (let k = 0; k < 5; k++) {
+                                state.wins[i][j + k][state.winCount] = true;
+                            }
+                            state.winCount++;
+                        }
+                    }
+                    for (let i = 0; i < boardSize; i++) {
+                        for (let j = 0; j <= state.maxPos; j++) {
+                            for (let k = 0; k < 5; k++) {
+                                state.wins[j + k][i][state.winCount] = true;
+                            }
+                            state.winCount++;
+                        }
+                    }
+                    for (let i = 0; i <= state.maxPos; i++) {
+                        for (let j = 0; j <= state.maxPos; j++) {
+                            for (let k = 0; k < 5; k++) {
+                                state.wins[i + k][j + k][state.winCount] = true;
+                            }
+                            state.winCount++;
+                        }
+                    }
+                    for (let i = 0; i <= state.maxPos; i++) {
+                        for (let j = boardSize - 1; j >= 4; j--) {
+                            for (let k = 0; k < 5; k++) {
+                                state.wins[i + k][j - k][state.winCount] = true;
+                            }
+                            state.winCount++;
+                        }
+                    }
+                    WIN_CACHE[boardSize] = {
+                        wins: state.wins,
+                        winCount: state.winCount
+                    };
+                }
+                if (state.myWin.length !== state.winCount) {
+                    state.myWin = new Array(state.winCount).fill(0);
+                    state.computerWin = new Array(state.winCount).fill(0);
+                } else {
+                    state.myWin.fill(0);
+                    state.computerWin.fill(0);
+                }
+                state.piecePosCache = {};
+            }
+
+            function resetGameState() {
+                Object.assign(state, {
+                    over: false,
+                    isPlayerTurn: true,
+                    canBack: false,
+                    canReturn: false,
+                    playerMove: null,
+                    computerMove: null,
+                    isCompWinRegret: false,
+                    hasCountLose: false,
+                    winLine: [],
+                    winner: null,
+                    regretCount: 0,
+                    loseCount: 0,
+                    currentMove: null,
+                    prevMove: null,
+                    savedMove: null,
+                    animPieces: {}
+                });
+                DOM.resultWrap.innerHTML = '单机五子棋';
+                DOM.regretCount.textContent = '0';
+                DOM.loseCount.textContent = '0';
+                initBoard();
+                drawChessBoard();
+                updateBtnStates();
+            }
+
+            // 计算机AI算法（核心部分）
+            function computerAI() {
+                if (state.isPlayerTurn || state.over || state.winner) return;
+                // 提取当前状态变量（对应原算法的boardSize、chessBoard、wins、myWin、computerWin、winCount）
+                const {
+                    boardSize,
+                    chessBoard,
+                    wins,
+                    myWin,
+                    computerWin,
+                    winCount
+                } = state;
+
+                // 初始化分数矩阵（对应原算法的myScore和computerScore）
+                const myScore = Array.from({
+                    length: boardSize
+                }, () => new Array(boardSize).fill(0));
+                const computerScore = Array.from({
+                    length: boardSize
+                }, () => new Array(boardSize).fill(0));
+
+                let maxScore = 0; // 最高分数
+                let targetI = 0,
+                    targetJ = 0; // 目标落子位置
+
+                // 遍历棋盘所有空位计算分数
+                for (let i = 0; i < boardSize; i++) {
+                    for (let j = 0; j < boardSize; j++) {
+                        if (chessBoard[i][j] === 0) { // 只计算空位
+                            // 遍历所有获胜组合计算当前位置分数
+                            for (let k = 0; k < winCount; k++) {
+                                if (wins[i][j][k]) { // 该位置属于第k个获胜组合
+                                    // 计算玩家（我方）分数
+                                    switch (myWin[k]) {
+                                        case 1:
+                                            myScore[i][j] += 200;
+                                            break; // 活一
+                                        case 2:
+                                            myScore[i][j] += 400;
+                                            break; // 活二
+                                        case 3:
+                                            myScore[i][j] += 2000;
+                                            break; // 活三
+                                        case 4:
+                                            myScore[i][j] += 10000;
+                                            break; // 活四
+                                    }
+
+                                    // 计算计算机分数（略高于玩家对应分值）
+                                    switch (computerWin[k]) {
+                                        case 1:
+                                            computerScore[i][j] += 220;
+                                            break; // 活一
+                                        case 2:
+                                            computerScore[i][j] += 420;
+                                            break; // 活二
+                                        case 3:
+                                            computerScore[i][j] += 2100;
+                                            break; // 活三
+                                        case 4:
+                                            computerScore[i][j] += 20000;
+                                            break; // 活四
+                                    }
+                                }
+                            }
+
+                            // 寻找最高分位置（优先计算机高分，其次玩家高分）
+                            // 玩家分数更高时更新位置
+                            if (myScore[i][j] > maxScore) {
+                                maxScore = myScore[i][j];
+                                targetI = i;
+                                targetJ = j;
+                            } else if (myScore[i][j] === maxScore) {
+                                // 分数相同时，选择计算机分数更高的位置
+                                if (computerScore[i][j] > computerScore[targetI][targetJ]) {
+                                    targetI = i;
+                                    targetJ = j;
+                                }
+                            }
+
+                            // 计算机分数更高时更新位置
+                            if (computerScore[i][j] > maxScore) {
+                                maxScore = computerScore[i][j];
+                                targetI = i;
+                                targetJ = j;
+                            } else if (computerScore[i][j] === maxScore) {
+                                // 分数相同时，选择玩家分数更高的位置
+                                if (myScore[i][j] > myScore[targetI][targetJ]) {
+                                    targetI = i;
+                                    targetJ = j;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 执行落子
+                state.computerMove = {
+                    i: targetI,
+                    j: targetJ
+                };
+                chessBoard[targetI][targetJ] = 2; // 标记计算机落子
+                state.animPieces[`${targetI},${targetJ}`] = {
+                    isPlayer: false,
+                    progress: 0
+                };
+                requestAnimationFrame(animatePieces);
+
+                // 检查是否获胜
+                let isWin = false;
+                let winKey = -1;
+                for (let k = 0; k < winCount; k++) {
+                    if (wins[targetI][targetJ][k]) {
+                        computerWin[k]++;
+                        myWin[k] = 6; // 标记该组合玩家已不可能获胜
+                        if (computerWin[k] === 5) {
+                            isWin = true;
+                            winKey = k;
+                            break;
+                        }
+                    }
+                }
+
+                if (isWin) {
+                    collectWinLine(winKey);
+                    state.prevMove = state.currentMove;
+                    state.currentMove = {
+                        player: state.playerMove ? {
+                            ...state.playerMove
+                        } : null,
+                        computer: {
+                            ...state.computerMove
+                        }
+                    };
+                    DOM.resultWrap.innerHTML = '很遗憾，你输了！';
+                    updateGameOver('computer');
+                    return;
+                }
+
+                // 检查是否平局
+                if (checkDraw()) {
+                    DOM.resultWrap.innerHTML = '棋盘已满，和棋！';
+                    updateGameOver('draw');
+                    return;
+                }
+
+                // 更新游戏状态
+                state.prevMove = state.currentMove;
+                state.currentMove = {
+                    player: {
+                        ...state.playerMove
+                    },
+                    computer: {
+                        ...state.computerMove
+                    }
+                };
+                state.isPlayerTurn = true;
+                state.canBack = true;
+                state.canReturn = false;
+                updateBtnStates();
+            }
+
+            function drawChessBoard() {
+                const {
+                    chessWidth,
+                    chessHeight
+                } = state;
+                ctx.clearRect(0, 0, chessWidth, chessHeight);
+                ctx.strokeStyle = '#bfbfbf';
+                ctx.lineWidth = 1;
+                for (let i = 0; i < state.boardSize; i++) {
+                    const pos = CONST.BOARD_PADDING + i * CONST.CELL_SIZE;
+                    ctx.beginPath();
+                    ctx.moveTo(pos, CONST.BOARD_PADDING);
+                    ctx.lineTo(pos, chessHeight - CONST.BOARD_PADDING);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.moveTo(CONST.BOARD_PADDING, pos);
+                    ctx.lineTo(chessWidth - CONST.BOARD_PADDING, pos);
+                    ctx.stroke();
+                }
+            }
+
+            function drawExistingPieces(activeMove) {
+                const {
+                    boardSize,
+                    chessBoard
+                } = state;
+                for (let i = 0; i < boardSize; i++) {
+                    for (let j = 0; j < boardSize; j++) {
+                        if (chessBoard[i][j] === 1 && !state.animPieces[`${i},${j}`]) {
+                            const isLast = activeMove?.player?.i === i && activeMove?.player?.j === j;
+                            drawPiece(i, j, true, isLast, 1);
+                        } else if (chessBoard[i][j] === 2 && !state.animPieces[`${i},${j}`]) {
+                            const isLast = activeMove?.computer?.i === i && activeMove?.computer?.j === j;
+                            drawPiece(i, j, false, isLast, 1);
+                        }
+                    }
+                }
+            }
+
+            function redrawAllPieces() {
+                const {
+                    chessWidth,
+                    chessHeight
+                } = state;
+                ctx.clearRect(0, 0, chessWidth, chessHeight);
+                drawChessBoard();
+                drawExistingPieces(getActiveMove());
+                if (state.winLine.length === 5 && state.winner) {
+                    drawWinLine(state.winLine);
+                }
+            }
+
+            function animatePieces() {
+                let isAnimating = false;
+                const {
+                    chessWidth,
+                    chessHeight
+                } = state;
+                ctx.clearRect(0, 0, chessWidth, chessHeight);
+                drawChessBoard();
+                const activeMove = getActiveMove();
+                drawExistingPieces(activeMove);
+                const animKeys = Object.keys(state.animPieces);
+                for (const key of animKeys) {
+                    isAnimating = true;
+                    const data = state.animPieces[key];
+                    data.progress += CONST.ANIM_STEP;
+                    data.progress > 1 && (data.progress = 1);
+                    const [i, j] = key.split(',').map(Number);
+                    const isLast = activeMove && ((data.isPlayer && activeMove.player?.i === i && activeMove.player
+                            ?.j === j) ||
+                        (!data.isPlayer && activeMove.computer?.i === i && activeMove.computer?.j === j));
+                    const easeProgress = CONST.ANIM_EASE(data.progress);
+                    drawPiece(i, j, data.isPlayer, isLast, easeProgress);
+                    if (data.progress === 1) delete state.animPieces[key];
+                }
+                if (state.winLine.length === 5 && state.winner) {
+                    drawWinLine(state.winLine);
+                }
+                isAnimating && requestAnimationFrame(animatePieces);
+            }
+
+            function getPiecePos(i, j) {
+                const key = `${i},${j}`;
+                if (state.piecePosCache[key]) return state.piecePosCache[key];
+                const pos = {
+                    x: CONST.BOARD_PADDING + i * CONST.CELL_SIZE,
+                    y: CONST.BOARD_PADDING + j * CONST.CELL_SIZE
+                };
+                state.piecePosCache[key] = pos;
+                return pos;
+            }
+
+            function drawPiece(i, j, isPlayer, drawMark, scale = 1) {
+                const {
+                    x,
+                    y
+                } = getPiecePos(i, j);
+                const r = CONST.PIECE_RADIUS * scale;
+                const clearRadius = CONST.PIECE_RADIUS + 3;
+                ctx.clearRect(x - clearRadius, y - clearRadius, clearRadius * 2, clearRadius * 2);
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, 2 * Math.PI);
+                ctx.closePath();
+                const gradient = ctx.createRadialGradient(x + 2, y - 2, r, x + 2, y - 2, 0);
+                const color = isPlayer ? CONST.PLAYER_COLOR : CONST.COMPUTER_COLOR;
+                gradient.addColorStop(0, color.start);
+                gradient.addColorStop(1, color.end);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                drawMark && drawCornerMark(i, j, isPlayer ? CONST.PLAYER_MARK : CONST.COMPUTER_MARK, scale);
+            }
+
+            function drawCornerMark(i, j, color, scale = 1) {
+                const {
+                    x,
+                    y
+                } = getPiecePos(i, j);
+                const r = CONST.PIECE_RADIUS * scale;
+                const segment = (r * 2) / 3;
+                ctx.save();
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2 * scale;
+                ctx.lineCap = 'round';
+                [
+                    [x - r, y - r, x - r + segment, y - r],
+                    [x + r - segment, y - r, x + r, y - r],
+                    [x - r, y + r, x - r + segment, y + r],
+                    [x + r - segment, y + r, x + r, y + r],
+                    [x - r, y - r, x - r, y - r + segment],
+                    [x - r, y + r - segment, x - r, y + r],
+                    [x + r, y - r, x + r, y - r + segment],
+                    [x + r, y + r - segment, x + r, y + r]
+                ].forEach(([x1, y1, x2, y2]) => {
+                    ctx.beginPath();
+                    ctx.moveTo(x1, y1);
+                    ctx.lineTo(x2, y2);
+                    ctx.stroke();
+                });
+                ctx.restore();
+            }
+
+            function drawWinLine(line) {
+                if (line.length !== 5) return;
+                ctx.save();
+                const {
+                    x: startX,
+                    y: startY
+                } = getPiecePos(line[0][0], line[0][1]);
+                ctx.strokeStyle = CONST.WIN_COLOR;
+                ctx.lineWidth = 4;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.beginPath();
+                ctx.moveTo(startX, startY);
+                line.slice(1).forEach(([i, j]) => {
+                    const {
+                        x,
+                        y
+                    } = getPiecePos(i, j);
+                    ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            function checkWin(i, j, isPlayer) {
+                const winArr = isPlayer ? state.myWin : state.computerWin;
+                const opponentWinArr = isPlayer ? state.computerWin : state.myWin;
+                const {
+                    winCount,
+                    wins
+                } = state;
+                for (let k = 0; k < winCount; k++) {
+                    if (wins[i][j][k]) {
+                        winArr[k]++;
+                        opponentWinArr[k] = 6;
+                        if (winArr[k] === 5) {
+                            collectWinLine(k);
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+
+            function checkRestoredWin() {
+                refreshWinArrays();
+                for (let k = 0; k < state.winCount; k++) {
+                    if (state.myWin[k] === 5) {
+                        collectWinLine(k);
+                        return 'player';
+                    }
+                    if (state.computerWin[k] === 5) {
+                        collectWinLine(k);
+                        return 'computer';
+                    }
+                }
+                return null;
+            }
+
+            function collectWinLine(winKey) {
+                state.winLine = [];
+                const {
+                    boardSize,
+                    wins
+                } = state;
+                for (let i = 0; i < boardSize && state.winLine.length < 5; i++) {
+                    for (let j = 0; j < boardSize && state.winLine.length < 5; j++) {
+                        if (wins[i][j][winKey]) {
+                            state.winLine.push([i, j]);
+                        }
+                    }
+                }
+            }
+
+            function checkDraw() {
+                const {
+                    boardSize,
+                    chessBoard
+                } = state;
+                for (let i = 0; i < boardSize; i++) {
+                    for (let j = 0; j < boardSize; j++) {
+                        if (chessBoard[i][j] === 0) return false;
+                    }
+                }
+                return true;
+            }
+
+            function updateGameOver(winner) {
+                state.over = true;
+                state.winner = winner;
+                state.canBack = winner !== 'draw';
+                state.canReturn = false;
+                state.savedMove = null;
+                updateBtnStates();
+                winner === 'computer' && (state.hasCountLose = false);
+                setTimeout(redrawAllPieces, 300);
+            }
+
+            document.addEventListener('contextmenu', e => e.preventDefault())
+        </script>
+    </body>
+</html>
